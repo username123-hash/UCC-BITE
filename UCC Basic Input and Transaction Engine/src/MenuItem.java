@@ -38,7 +38,77 @@
  */
 public class MenuItem {
 
-    // TODO (Ampater): add the private fields, constructor, getters, and toString
-    //                 exactly as listed above.
+    // ------------------------------------------------------------------
+    // PRIVATE FIELDS (Section 8.1). All private; read them through getters.
+    // ------------------------------------------------------------------
+    private int id;
+    private String name;
+    private double price;
+    private boolean available;
 
+    /**
+     * Creates one menu item (one row of menu.csv).
+     *
+     * HOW IT MUST BEHAVE
+     *   1. Check id: if id <= 0, throw IllegalArgumentException("...clear message...").
+     *   2. Check name: if null or blank, throw IllegalArgumentException.
+     *   3. Trim the name (" Fried Chicken " becomes "Fried Chicken"), THEN check
+     *      that it has no comma (',') and no line break ('\n' or '\r');
+     *      if it does, throw IllegalArgumentException.
+     *   4. Check price: if price <= 0, throw IllegalArgumentException.
+     *   5. Only when everything is valid, store the four values in the fields.
+     *
+     * @param id        whole number greater than 0 (unique across the menu)
+     * @param name      item name; stored trimmed
+     * @param price     greater than 0
+     * @param available true if the item can be ordered, false if SOLD OUT
+     * @throws IllegalArgumentException if any argument breaks the rules above
+     */
+    public MenuItem(int id, String name, double price, boolean available) {
+        // TODO (Ampater): validate the arguments, then assign the fields.
+    }
+
+    /**
+     * @return the item's id (the number the customer types when ordering)
+     */
+    public int getId() {
+        // TODO (Ampater): return the id field.
+        return 0;
+    }
+
+    /**
+     * @return the trimmed item name
+     */
+    public String getName() {
+        // TODO (Ampater): return the name field.
+        return null;
+    }
+
+    /**
+     * @return the price (greater than 0). Display formatting is ConsoleUI's job.
+     */
+    public double getPrice() {
+        // TODO (Ampater): return the price field.
+        return 0.0;
+    }
+
+    /**
+     * @return true if the item can be ordered, false if it is sold out
+     */
+    public boolean isAvailable() {
+        // TODO (Ampater): return the available field.
+        return false;
+    }
+
+    /**
+     * Short one-line DEBUG text (id, name, price, availability), for example
+     * "MenuItem{id=1, name=Siomai Rice, price=45.00, available=true}".
+     * It is NOT used for screen layout (ConsoleUI does that).
+     *
+     * @return a one-line description of this item
+     */
+    public String toString() {
+        // TODO (Ampater): build and return the debug string.
+        return "";
+    }
 }
