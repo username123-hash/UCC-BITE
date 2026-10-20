@@ -1,0 +1,9 @@
+id,name,price,available
+1,Siomai Rice,45.00,true
+2,Chicken Adobo with Rice,65.00,true
+3,Pork Sisig,70.00,true
+4,Hotdog Sandwich,25.00,true
+5,Fried Chicken,60.00,true
+6,Spaghetti,40.00,false
+7,Iced Tea,20.00,true
+8,Bottled Water,15.00,true

@@ -1,0 +1,11 @@
+# Compiled output
+bin/
+*.class
+
+# Runtime data (CsvManager recreates it)
+**/data/orders.csv
+
+# IDE and editor files
+.idea/
+*.iml
+.vscode/
