@@ -102,15 +102,6 @@ public class ConsoleUI {
     }
 
     /**
-     * Clears the console screen using an ANSI escape code.
-     * Currently not called anywhere; kept for use between screens if wanted.
-     */
-    private static void ClearCMDScreen(){
-        System.out.print("\033[H\033[2J");
-        System.out.flush();
-    }
-
-    /**
      * Turns a number into money text: CURRENCY + exactly 2 decimals.
      * This only FORMATS the value; it does no price math (contract rule).
      *
@@ -402,6 +393,15 @@ public class ConsoleUI {
     public void showGoodbye(){
         System.out.println();
         System.out.println("Thank you for using UBITE. Goodbye!");
+    }
+
+    /**
+     * Clears the console screen using an ANSI escape code.
+     * Currently not called anywhere; kept for use between screens if wanted.
+     */
+    public void ClearCMDScreen(){
+        System.out.print("\033[H\033[2J");
+        System.out.flush();
     }
 
     /**
