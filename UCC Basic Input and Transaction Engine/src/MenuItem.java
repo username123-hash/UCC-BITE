@@ -65,15 +65,26 @@ public class MenuItem {
      * @throws IllegalArgumentException if any argument breaks the rules above
      */
     public MenuItem(int id, String name, double price, boolean available) {
-        // TODO (Ampater): validate the arguments, then assign the fields.
+        if(id <= 0) {
+            throw new IllegalArgumentException("ID must be greater than 0.");
+        }else if(name == null || name.trim().isEmpty()){
+            throw new IllegalArgumentException("Name cannot be null or blank.");
+        }else if(price <0){
+            throw new IllegalArgumentException("Price cannot be negative! Invalid. Input");
+        }
+
+        this.id = id;
+        this.name = name.trim();
+        this.price = price;
+        this.available = available;
     }
 
     /**
      * @return the item's id (the number the customer types when ordering)
      */
     public int getId() {
-        // TODO (Ampater): return the id field.
-        return 0;
+  
+        return this.id;
     }
 
     /**
@@ -81,7 +92,7 @@ public class MenuItem {
      */
     public String getName() {
         // TODO (Ampater): return the name field.
-        return null;
+        return this.name;
     }
 
     /**
@@ -89,7 +100,7 @@ public class MenuItem {
      */
     public double getPrice() {
         // TODO (Ampater): return the price field.
-        return 0.0;
+        return this.price;
     }
 
     /**
@@ -97,7 +108,7 @@ public class MenuItem {
      */
     public boolean isAvailable() {
         // TODO (Ampater): return the available field.
-        return false;
+        return this.available;
     }
 
     /**
@@ -109,6 +120,6 @@ public class MenuItem {
      */
     public String toString() {
         // TODO (Ampater): build and return the debug string.
-        return "";
+        return "MenuItem{id=" + this.id + ", name='" + this.name + "', price=" + this.price + ", available=" + this.available + "}";
     }
 }
