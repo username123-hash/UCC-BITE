@@ -82,8 +82,7 @@ public class MenuItem {
     /**
      * @return the item's id (the number the customer types when ordering)
      */
-    public int getId() {
-  
+    public int getId() { 
         return this.id;
     }
 
