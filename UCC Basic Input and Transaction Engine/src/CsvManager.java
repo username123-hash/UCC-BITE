@@ -1,212 +1,274 @@
-/**
- * CsvManager - the ONLY class that knows how data is stored on disk.
- * Loads and saves menu.csv and orders.csv and keeps a list of warnings.
- *
- * OWNER      : Dizon
- * CONTRACT   : Section 8.4 (class contract), Section 7 (data file specification:
- *              7.1 menu.csv, 7.2 orders.csv, 7.3 rules for both files)
- * DEPENDS ON : MenuItem, Order
- * USED BY    : Main
- *
- * PRIVATE FIELDS (Section 8.4)
- *   String dataFolder, menuPath, ordersPath; ArrayList<String> warnings
- *
- * PUBLIC API (frozen signatures, Section 8.4)
- *   public static final String DEFAULT_DATA_FOLDER = "data";
- *
- *   public CsvManager()
- *   public CsvManager(String dataFolder)
- *   public boolean ensureDataFiles()
- *   public MenuItem[] loadMenu()
- *   public ArrayList<Order> loadOrders()
- *   public boolean saveOrders(List<Order> orders)
- *   public List<String> getWarnings()
- *   public void clearWarnings()
- *
- * BEHAVIOR (Section 8.4 "Behavior")
- *   - No-arg constructor uses folder "data", relative to the working directory
- *     that start.bat sets (Section 5).
- *   - ensureDataFiles: create data folder if missing; create menu.csv (header +
- *     default seed menu, Section 7.1) if missing; create orders.csv (header only)
- *     if missing. NEVER overwrites an existing file. Returns true if both files
- *     exist and are usable, else false with a warning.
- *   - loadMenu: MenuItem[] in file order (rules in Section 7.3). Catches
- *     IllegalArgumentException and number-format errors per row, skips the row,
- *     adds a warning. Repeated id skipped with a warning. Never null (empty or
- *     unreadable file = zero-length array + warning).
- *   - loadOrders: ArrayList<Order> sorted ascending by orderId, built with the
- *     Order RESTORE constructor. total column ignored. Unknown status text =
- *     skipped row. Repeated orderId skipped with a warning. Never null.
- *   - saveOrders: header + one row per order in the order given. Write to a
- *     temporary file first, then replace orders.csv. Returns true on success;
- *     on I/O failure (e.g. file locked in Excel) returns false + warning and
- *     never throws for I/O problems. Null list throws IllegalArgumentException.
- *   - Numbers written/parsed with a dot decimal separator (explicit US locale).
- *   - getWarnings: unmodifiable list, in order. clearWarnings: empties it.
- *     Warning style: "orders.csv line 7 skipped: quantity is not a whole number".
- *
- * FILE RULES (Section 7.3): first non-blank line is the header and is skipped;
- *   strip UTF-8 BOM; skip blank lines; trim every field; quoted fields not
- *   supported; wrong column count / unparseable number / constructor rejection
- *   = skipped row + warning (file name, line number, reason); save rewrites the
- *   whole file; the next order number is NOT stored (Main computes it).
- *
- * MUST NOT (Section 8.4): print to the console, decide what to do about
- *   warnings, call System.exit, or keep orders in memory beyond a single call.
- *
- * SELF-TEST (Section 8.4): deleted data folder is recreated; header-only
- *   orders.csv loads as empty; letters in quantity = skipped row with the line
- *   number in the warning; BOM file loads correctly; save then load gives
- *   identical orders; locked file makes saveOrders return false.
- *
- * ALSO SEE: Section 10 (error matrix), Section 9.4 (restart restoration),
- *   Section 11 point 4 (handy placeholder skeleton).
- */
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+
+// CsvManager - the ONLY class that knows how data is stored on disk.
 
 public class CsvManager {
 
-    // Name of the data folder used by the no-argument constructor.
     public static final String DEFAULT_DATA_FOLDER = "data";
 
-    // ------------------------------------------------------------------
-    // PRIVATE FIELDS (Section 8.4)
-    // ------------------------------------------------------------------
-    private String dataFolder;                 // e.g. "data"
-    private String menuPath;                   // e.g. "data/menu.csv"
-    private String ordersPath;                 // e.g. "data/orders.csv"
+    private static final String MENU_HEADER = "id,name,price,available";
+    private static final String ORDERS_HEADER =
+            "orderId,itemId,itemName,unitPrice,quantity,total,status";
+
+    private String dataFolder;
+    private String menuPath;
+    private String ordersPath;
     private ArrayList<String> warnings = new ArrayList<String>();
 
-    /**
-     * Creates a manager that uses the folder DEFAULT_DATA_FOLDER ("data"),
-     * relative to the working directory (start.bat sets it - Section 5).
-     * Same as calling CsvManager(DEFAULT_DATA_FOLDER).
-     */
+    // CONSTRUCTORS: just remember where the files are. No disk access.
     public CsvManager() {
-        // TODO (Dizon): call this(DEFAULT_DATA_FOLDER).
+        this(DEFAULT_DATA_FOLDER);
     }
 
-    /**
-     * Creates a manager for a chosen folder (useful for testing).
-     *
-     * HOW IT MUST BEHAVE
-     *   - Store dataFolder, then build menuPath = dataFolder + "/menu.csv" and
-     *     ordersPath = dataFolder + "/orders.csv".
-     *   - Do NOT touch the disk here; that is ensureDataFiles' job.
-     *
-     * @param dataFolder folder that holds menu.csv and orders.csv
-     */
     public CsvManager(String dataFolder) {
-        // TODO (Dizon): store the folder and build the two paths.
+        this.dataFolder = dataFolder;
+        this.menuPath = dataFolder + "/menu.csv";
+        this.ordersPath = dataFolder + "/orders.csv";
     }
 
-    /**
-     * Makes sure the data folder and both CSV files exist. NEVER overwrites
-     * an existing file.
-     *
-     * HOW IT MUST BEHAVE
-     *   1. Create the data folder if it is missing.
-     *   2. If menu.csv is missing, create it with the header
-     *      "id,name,price,available" plus the 8 default rows (Section 7.1).
-     *   3. If orders.csv is missing, create it with only the header
-     *      "orderId,itemId,itemName,unitPrice,quantity,total,status".
-     *   4. Write the files as UTF-8.
-     *   5. On any I/O problem, add a warning that explains why and return false.
-     *      Never throw for I/O problems.
-     *
-     * @return true if both files exist and are usable afterwards, otherwise false
-     */
+    // ensureDataFiles: make the folder + files if they are missing.
     public boolean ensureDataFiles() {
-        // TODO (Dizon): implement the steps above.
-        return true;
+        try {
+            // 1. folder (does nothing if it already exists)
+            Files.createDirectories(Paths.get(dataFolder));
+
+            // 2. menu.csv, only if missing (NEVER overwrite)
+            Path menu = Paths.get(menuPath);
+            if (!Files.exists(menu)) {
+                List<String> lines = new ArrayList<String>();
+                lines.add(MENU_HEADER);
+                lines.add("1,Siomai Rice,45.00,true");
+                lines.add("2,Chicken Adobo with Rice,65.00,true");
+                lines.add("3,Pork Sisig,70.00,true");
+                lines.add("4,Hotdog Sandwich,25.00,true");
+                lines.add("5,Fried Chicken,60.00,true");
+                lines.add("6,Spaghetti,40.00,false");
+                lines.add("7,Iced Tea,20.00,true");
+                lines.add("8,Bottled Water,15.00,true");
+                Files.write(menu, lines, StandardCharsets.UTF_8);
+            }
+
+            // 3. orders.csv, only if missing (header only)
+            Path orders = Paths.get(ordersPath);
+            if (!Files.exists(orders)) {
+                List<String> lines = new ArrayList<String>();
+                lines.add(ORDERS_HEADER);
+                Files.write(orders, lines, StandardCharsets.UTF_8);
+            }
+        } catch (IOException e) {
+            warnings.add("Could not create data files: " + e.getMessage());
+            return false;
+        }
+        return Files.exists(Paths.get(menuPath)) && Files.exists(Paths.get(ordersPath));
     }
 
-    /**
-     * Reads menu.csv into an array, in file order (rules: Section 7.3).
-     *
-     * HOW IT MUST BEHAVE
-     *   - The first non-blank line is the header: skip it. Strip a UTF-8 BOM
-     *     if present. Skip blank lines. Trim every field. No quoted fields.
-     *   - Each row needs exactly 4 columns: id, name, price, available.
-     *     Parse numbers with a dot decimal separator (US locale).
-     *   - Wrong column count, unparseable number, or the MenuItem constructor
-     *     throwing IllegalArgumentException = skip the row and add a warning,
-     *     e.g. "menu.csv line 4 skipped: price is not a number".
-     *   - A repeated id is skipped with a warning.
-     *   - NEVER return null. An unreadable or empty file gives a zero-length
-     *     array plus a warning.
-     *
-     * @return the valid menu items in file order (possibly empty)
-     */
+    // loadMenu: menu.csv -> MenuItem[]
     public MenuItem[] loadMenu() {
-        // TODO (Dizon): implement; for now an empty array keeps everything compiling.
-        return new MenuItem[0];
+        ArrayList<MenuItem> items = new ArrayList<MenuItem>();
+        HashSet<Integer> seenIds = new HashSet<Integer>();
+
+        List<String> lines = readLines(menuPath, "menu.csv");
+        boolean headerSkipped = false;
+
+        for (int i = 0; i < lines.size(); i++) {
+            int lineNo = i + 1;                 // humans count from 1
+            String line = lines.get(i);
+
+            if (line.trim().isEmpty()) continue;            // blank line
+            if (!headerSkipped) { headerSkipped = true; continue; } // header
+
+            String[] f = line.split(",", -1);   // -1 keeps empty trailing fields
+            if (f.length != 4) {
+                warnings.add("menu.csv line " + lineNo + " skipped: expected 4 columns");
+                continue;
+            }
+            for (int k = 0; k < f.length; k++) f[k] = f[k].trim();
+
+            int id;
+            double price;
+            try {
+                id = Integer.parseInt(f[0]);
+            } catch (NumberFormatException e) {
+                warnings.add("menu.csv line " + lineNo + " skipped: id is not a whole number");
+                continue;
+            }
+            try {
+                price = Double.parseDouble(f[2]);
+            } catch (NumberFormatException e) {
+                warnings.add("menu.csv line " + lineNo + " skipped: price is not a number");
+                continue;
+            }
+            if (!f[3].equalsIgnoreCase("true") && !f[3].equalsIgnoreCase("false")) {
+                warnings.add("menu.csv line " + lineNo + " skipped: available must be true or false");
+                continue;
+            }
+            boolean available = f[3].equalsIgnoreCase("true");
+
+            if (seenIds.contains(id)) {
+                warnings.add("menu.csv line " + lineNo + " skipped: id " + id + " is repeated");
+                continue;
+            }
+
+            try {
+                items.add(new MenuItem(id, f[1], price, available));
+                seenIds.add(id);
+            } catch (IllegalArgumentException e) {
+                warnings.add("menu.csv line " + lineNo + " skipped: " + e.getMessage());
+            }
+        }
+
+        if (items.isEmpty()) {
+            warnings.add("menu.csv has no valid menu items");
+        }
+        return items.toArray(new MenuItem[0]);
     }
 
-    /**
-     * Reads orders.csv into a list, sorted ascending by orderId.
-     *
-     * HOW IT MUST BEHAVE
-     *   - Same file rules as loadMenu (header, BOM, blank lines, trimming).
-     *   - Each row needs exactly 7 columns:
-     *     orderId, itemId, itemName, unitPrice, quantity, total, status.
-     *   - IGNORE the total column. Build each order with the RESTORE
-     *     constructor Order(orderId, itemId, itemName, unitPrice, quantity, status),
-     *     which recomputes the total.
-     *   - Status text is case-insensitive (pending/PENDING). Unknown status
-     *     text = skip the row with a warning.
-     *   - Bad number, wrong column count, or constructor rejection = skip the
-     *     row with a warning such as
-     *     "orders.csv line 7 skipped: quantity is not a whole number".
-     *   - A repeated orderId is skipped with a warning.
-     *   - Sort ascending by orderId before returning. NEVER return null.
-     *
-     * @return the valid orders, ascending by orderId (possibly empty)
-     */
+    // loadOrders: orders.csv -> ArrayList<Order>, sorted by orderId
     public ArrayList<Order> loadOrders() {
-        // TODO (Dizon): implement; for now an empty list keeps everything compiling.
-        return new ArrayList<Order>();
+        ArrayList<Order> result = new ArrayList<Order>();
+        HashSet<Integer> seenIds = new HashSet<Integer>();
+
+        List<String> lines = readLines(ordersPath, "orders.csv");
+        boolean headerSkipped = false;
+
+        for (int i = 0; i < lines.size(); i++) {
+            int lineNo = i + 1;
+            String line = lines.get(i);
+
+            if (line.trim().isEmpty()) continue;
+            if (!headerSkipped) { headerSkipped = true; continue; }
+
+            String[] f = line.split(",", -1);
+            if (f.length != 7) {
+                warnings.add("orders.csv line " + lineNo + " skipped: expected 7 columns");
+                continue;
+            }
+            for (int k = 0; k < f.length; k++) f[k] = f[k].trim();
+
+            int orderId, itemId, quantity;
+            double unitPrice;
+            Order.Status status;
+
+            try {
+                orderId = Integer.parseInt(f[0]);
+            } catch (NumberFormatException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: orderId is not a whole number");
+                continue;
+            }
+            try {
+                itemId = Integer.parseInt(f[1]);
+            } catch (NumberFormatException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: itemId is not a whole number");
+                continue;
+            }
+            // f[2] = itemName, used as text
+            try {
+                unitPrice = Double.parseDouble(f[3]);
+            } catch (NumberFormatException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: unitPrice is not a number");
+                continue;
+            }
+            try {
+                quantity = Integer.parseInt(f[4]);
+            } catch (NumberFormatException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: quantity is not a whole number");
+                continue;
+            }
+            // f[5] = total -> IGNORED (Order recomputes it)
+            try {
+                status = Order.Status.valueOf(f[6].toUpperCase(Locale.US));
+            } catch (IllegalArgumentException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: unknown status '" + f[6] + "'");
+                continue;
+            }
+
+            if (seenIds.contains(orderId)) {
+                warnings.add("orders.csv line " + lineNo + " skipped: orderId " + orderId + " is repeated");
+                continue;
+            }
+
+            try {
+                result.add(new Order(orderId, itemId, f[2], unitPrice, quantity, status));
+                seenIds.add(orderId);
+            } catch (IllegalArgumentException e) {
+                warnings.add("orders.csv line " + lineNo + " skipped: " + e.getMessage());
+            }
+        }
+
+        // sort ascending by orderId (small list, so a simple comparator is fine)
+        Collections.sort(result, new java.util.Comparator<Order>() {
+            public int compare(Order a, Order b) {
+                return Integer.compare(a.getOrderId(), b.getOrderId());
+            }
+        });
+        return result;
     }
 
-    /**
-     * Saves ALL orders to orders.csv (the whole file is rewritten every time).
-     *
-     * HOW IT MUST BEHAVE
-     *   1. orders == null throws IllegalArgumentException.
-     *   2. Write the header, then one row per order IN THE ORDER GIVEN:
-     *      orderId,itemId,itemName,unitPrice,quantity,total,status
-     *      Money with exactly 2 decimals and a dot (US locale); status in
-     *      uppercase; file encoded as UTF-8.
-     *   3. Write to a temporary file first, then replace orders.csv with it,
-     *      so a crash in the middle cannot destroy the old data.
-     *   4. On any I/O failure (for example the file is locked by Excel) add a
-     *      warning and return false. Never throw for I/O problems.
-     *
-     * @param orders the complete order history to save (not null)
-     * @return true if saved, false if it failed
-     * @throws IllegalArgumentException if orders is null
-     */
+    // saveOrders: write ALL orders to orders.csv (safely)
     public boolean saveOrders(List<Order> orders) {
-        // TODO (Dizon): implement; for now report success so Main can be tested.
-        return true;
+        if (orders == null) {
+            throw new IllegalArgumentException("orders must not be null");
+        }
+
+        List<String> lines = new ArrayList<String>();
+        lines.add(ORDERS_HEADER);
+        for (Order o : orders) {
+            lines.add(o.getOrderId() + ","
+                    + o.getItemId() + ","
+                    + o.getItemName() + ","
+                    + String.format(Locale.US, "%.2f", o.getUnitPrice()) + ","
+                    + o.getQuantity() + ","
+                    + String.format(Locale.US, "%.2f", o.getTotal()) + ","
+                    + o.getStatus().name());   // name() is already UPPERCASE
+        }
+
+        Path target = Paths.get(ordersPath);
+        Path temp = Paths.get(ordersPath + ".tmp");
+        try {
+            // 1. write everything to a temp file first
+            Files.write(temp, lines, StandardCharsets.UTF_8);
+            // 2. then swap it in. If we crashed in step 1, the old file is untouched.
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (IOException e) {
+            warnings.add("Could not save orders.csv: " + e.getMessage());
+            try { Files.deleteIfExists(temp); } catch (IOException ignored) { }
+            return false;
+        }
     }
 
-    /**
-     * Returns the warnings collected so far (skipped rows, I/O problems),
-     * in the order they happened.
-     *
-     * @return an UNMODIFIABLE list (see Collections.unmodifiableList); never null
-     */
+    // warnings
     public List<String> getWarnings() {
-        // TODO (Dizon): return an unmodifiable view of the warnings list.
-        return new ArrayList<String>();
+        return Collections.unmodifiableList(warnings);
     }
 
-    /**
-     * Empties the warnings list. Main calls this after it has shown them.
-     */
     public void clearWarnings() {
-        // TODO (Dizon): clear the warnings list.
+        warnings.clear();
+    }
+
+    // PRIVATE HELPER: read a whole file as UTF-8 lines, strip the BOM.
+    // Never returns null: if the file can't be read, returns an empty list
+    // and adds a warning.
+    private List<String> readLines(String path, String fileName) {
+        try {
+            List<String> lines = Files.readAllLines(Paths.get(path), StandardCharsets.UTF_8);
+            if (!lines.isEmpty() && lines.get(0).startsWith("\uFEFF")) {
+                lines.set(0, lines.get(0).substring(1));   // remove the BOM
+            }
+            return lines;
+        } catch (IOException e) {
+            warnings.add(fileName + " could not be read: " + e.getMessage());
+            return new ArrayList<String>();
+        }
     }
 }

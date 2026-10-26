@@ -1,224 +1,511 @@
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.NoSuchElementException;
+import java.util.Scanner;
 
-/**
- * Main - starts the program and coordinates the other classes. Holds the
- * workflow and the business rules, but NO file parsing, NO queue logic,
- * NO Scanner and NO System.out.
- *
- * OWNER      : Bolivar
- * CONTRACT   : Section 8.6 (class contract), Section 9 (end-to-end flows:
- *              9.1 startup, 9.2 place order, 9.3 process next, 9.4 restart
- *              restoration), Section 10 (validation matrix)
- * DEPENDS ON : MenuItem, Order, OrderQueue, CsvManager, ConsoleUI
- * USED BY    : entry point (launched by start.bat, Section 5)
- *
- * PRIVATE FIELDS (Section 8.6)
- *   ConsoleUI ui; CsvManager csv; OrderQueue queue; MenuItem[] menu;
- *   ArrayList<Order> orders (full history, always ascending orderId);
- *   int nextOrderId
- *
- * CONSTANTS (Section 8.6)
- *   MAX_QUANTITY = 99
- *   Main menu numbers: 1 View Menu, 2 Place Order, 3 View Pending Orders,
- *   4 Process Next Order, 5 View Order History, 6 Exit
- *
- * METHODS (frozen signatures, Section 8.6)
- *   public static void main(String[] args)
- *   private void init()                  -> Section 9.1
- *   private void run()                   -> main loop, readInt(1 to 6)
- *   private void handleViewMenu()        -> printMenu, then pause
- *   private void handlePlaceOrder()      -> Section 9.2
- *   private void handleViewPending()     -> printOrders("Pending Orders (oldest first)", queue.toArray())
- *   private void handleProcessNext()     -> Section 9.3
- *   private void handleViewHistory()     -> non-pending orders, "Completed Orders"
- *   private void shutdown()              -> saveAll, showGoodbye, ui.close
- *   private MenuItem findMenuItemById(int id)   -> match or null
- *   private int computeNextOrderId()     -> highest orderId + 1, or 1 if empty
- *   private void rebuildQueue()          -> clear queue, enqueue every PENDING
- *                                           order in list order; warn if enqueue fails
- *   private boolean saveAll()            -> csv.saveOrders(orders); on false show
- *                                           error (suggest closing orders.csv) and
- *                                           keep running
- *
- * BEHAVIOR (Section 8.6 "Behavior")
- *   - main: create objects, call init, then run inside try/catch for
- *     IllegalStateException (input closed), then shutdown.
- *   - Main is the ONLY class allowed to call System.exit (Section 1 rule 4).
- *   - Business rules that live here: availability check, MAX_QUANTITY,
- *     queue-full check BEFORE creating an order, order numbering.
- *
- * MUST NOT (Section 8.6): parse files, implement queue logic, use Scanner,
- *   or use System.out.
- *
- * ALSO SEE: Section 10 (who detects which error), Section 12 (schedule),
- *   Section 13 (acceptance tests), Section 14 (explain the overall workflow).
- */
 public class Main {
+    //CONSTANTS Definition
+    private static final int MAX_QUANTITY = 99;     //Defined Max Units of Items per Order.
+    private final String CURRENCY = "PHP ";         //Defined Currency used and it's format.
 
-    // ------------------------------------------------------------------
-    // CONSTANTS AND PRIVATE FIELDS (Section 8.6)
-    // ------------------------------------------------------------------
-    private static final int MAX_QUANTITY = 99;   // business rule: most units per order
+    //Objects Instantiation (declared here, created in init())
+        //Implementation of Local Object
+        private ArrayList<Order> orders;            //Instantiation of the Local Object "Order", for complete history, ascending orderId
 
-    private ConsoleUI ui;                // all screen input/output
-    private CsvManager csv;              // all file reading/writing
-    private OrderQueue queue;            // pending orders, FIFO
-    private MenuItem[] menu;             // the menu loaded from menu.csv
-    private ArrayList<Order> orders;     // complete history, ascending orderId
-    private int nextOrderId;             // number the next new order will get
+        //Local Objects
+        private CsvManager csvManager;              //All File Reading/Writing
+        private OrderQueue orderQueue;              //Pending orders, FIFO
+        private MenuItem[] menuItems;               //The menu loaded from menu.csv
 
-    /**
-     * Program entry point.
-     *
-     * HOW IT MUST BEHAVE
-     *   1. Create a Main object and its helpers: ui = new ConsoleUI(),
-     *      csv = new CsvManager(), queue = new OrderQueue().
-     *   2. Call init(). (If init finds a fatal problem, it must make main stop
-     *      cleanly; Main is the only class allowed to call System.exit.)
-     *   3. Call run() inside try/catch for IllegalStateException (that means
-     *      the input stream closed, e.g. Ctrl+Z); just fall through to step 4.
-     *   4. Call shutdown().
-     *
-     * @param args command-line arguments (not used)
-     */
+        //Scanner Object
+        private Scanner scanner;                    //Input Getter
+
+    //Class Variable
+        private int nextOrderId;                    //Number the next new order will get
+
+
+
+
+
+    //Methods:
+        //Helpers: For Display
+
+            //1. Prints blank lines. Used to add vertical spacing on screen.
+            private void heightSpaces(int count) {
+                for(int i=0; i<count; i++){
+                    System.out.println();
+                }
+            }
+
+            //2. Reads one line from the keyboard. [If the input stream has ended (for example Ctrl+Z on Windows), the Scanner throws NoSuchElementException; this method turns it into IllegalStateException("Input closed") so main() can catch it and shut down cleanly.]
+            private String nextLineOrThrow() {
+                try {
+                    return scanner.nextLine();
+                } catch (NoSuchElementException e) {
+                    throw new IllegalStateException("Input closed");
+                }
+            }
+
+            //3. Turns a number into money text: CURRENCY + exactly 2 decimals (Locale.US makes sure the decimal separator is always a dot).
+            private String formatMoney(double amount) {
+                return CURRENCY + String.format(Locale.US, "%.2f", amount);
+            }
+
+            //4. Shortens text so it never breaks table alignment. If the text is longer than maxLength, it is cut and "..." is added at the end.
+            private String shorten(String text, int maxLength) {
+                if (text == null) {
+                    return "";
+                }
+                if (text.length() <= maxLength) {
+                    return text;
+                }
+                return text.substring(0, maxLength - 3) + "...";
+            }
+
+            //5. Asks a yes/no question and keeps asking until the answer is y, yes, n or no (any letter case).
+            private boolean UIconfirm(String prompt){
+                while (true) {
+                    System.out.print(prompt + " (y/n): ");
+                    String answer = nextLineOrThrow().trim().toLowerCase();
+
+                    if (answer.equals("y") || answer.equals("yes")) {return true;}
+                    if (answer.equals("n") || answer.equals("no")) {return false;}
+
+                    System.out.println("Please type y or n.");
+                }
+            }
+
+            //6. Turns an order id into display text: "#" plus 4 digits padded with zeros (7 becomes "#0007").
+            private String formatOrderNumber(int orderId) {
+                return String.format("#%04d", orderId);
+            }
+
+            //7. Clears the console screen using an ANSI escape code. Called before each new screen so the old text does not pile up.
+            private void UIClearCMDScreen(){
+                System.out.print("\033[H\033[2J");
+                System.out.flush();
+            }
+
+            //8. Stops the program until the user presses Enter, so a screen can be read before the next one appears.
+            private void UIpause(){
+                System.out.print("Press Enter to continue...");
+                nextLineOrThrow();
+            }
+
+            //9. Asks for a whole number from min to max and keeps asking until the input is valid.
+            //   It reads a whole line (never nextInt) so no leftover newline is left behind.
+            private int UIreadInt(String prompt, int min, int max){
+                while (true) {
+                    System.out.print(prompt);
+                    String line = nextLineOrThrow().trim();
+
+                    try {
+                        int value = Integer.parseInt(line);
+                        if (value >= min && value <= max) {
+                            return value;
+                        }
+                        System.out.println("Please enter a number from " + min + " to " + max + ".");
+                    } catch (NumberFormatException e) {
+                        System.out.println("Please enter a whole number.");
+                    }
+                }
+            }
+
+            //10. Shows the program banner and waits for Enter, then clears the screen so the banner does not stay on screen.
+            private void UIshowBanner(){
+                System.out.println(" __    __  _______   ______  ________  ________ ");
+                System.out.println("/  |  /  |/       \\ /      |/        |/        |");
+                System.out.println("$$ |  $$ |$$$$$$$  |$$$$$$/ $$$$$$$$/ $$$$$$$$/ ");
+                System.out.println("$$ |  $$ |$$ |__$$ |  $$ |     $$ |   $$ |__ ");
+                System.out.println("$$ |  $$ |$$    $$<   $$ |     $$ |   $$    |");
+                System.out.println("$$ |  $$ |$$$$$$$  |  $$ |     $$ |   $$$$$/    ");
+                System.out.println("$$ \\__$$ |$$ |__$$ | _$$ |_    $$ |   $$ |_____ ");
+                System.out.println("$$    $$/ $$    $$/ / $$   |   $$ |   $$       |");
+                System.out.println(" $$$$$$/  $$$$$$$/  $$$$$$/    $$/    $$$$$$$$/ ");
+
+                heightSpaces(1); System.out.println("    UCC Basic Input and Transaction Engine");
+                heightSpaces(3); System.out.println("         [Press Enter to Continue.]");
+
+                nextLineOrThrow();
+                UIClearCMDScreen();
+            }
+
+            //11. Prints the six main menu options. It only prints; run() reads the choice.
+            private void UIshowMainMenu(){
+                System.out.println();
+                System.out.println("============= MAIN MENU =============");
+                System.out.println("  1. View Menu");
+                System.out.println("  2. Place Order");
+                System.out.println("  3. View Pending Orders");
+                System.out.println("  4. Process Next Order     (Kitchen)");
+                System.out.println("  5. View Order History     (Manager)");
+                System.out.println("  6. Exit");
+                System.out.println("=====================================");
+            }
+
+            //12. Prints the menu as a table: item number (the id the customer types), name and price. Unavailable items are marked SOLD OUT.
+            private void UIprintMenu(MenuItem[] items){
+                System.out.println();
+                System.out.println("----------------------- MENU ----------------------");
+
+                if (items == null || items.length == 0) {
+                    System.out.println("The menu is empty.");
+                    return;
+                }
+
+                //Column widths: No. = 5, Item = 22, Price = 12 (right-aligned)
+                String format = "%-5s %-22s %12s  %s%n";
+
+                System.out.printf(format, "No.", "Item", "Price", "");
+                System.out.println("---------------------------------------------------");
+
+                for (MenuItem item : items) {
+                    String status = item.isAvailable() ? "" : "SOLD OUT";
+                    System.out.printf(format,
+                            String.valueOf(item.getId()),
+                            shorten(item.getName(), 22),
+                            formatMoney(item.getPrice()),
+                            status);
+                }
+                System.out.println("---------------------------------------------------");
+            }
+
+            //13. Prints a titled table of orders. All values come from the Order getters; nothing is calculated here.
+            private void UIprintOrders(String title, Order[] ordersToShow){
+                System.out.println();
+                System.out.println("=== " + title + " ===");
+
+                if (ordersToShow == null || ordersToShow.length == 0) {
+                    System.out.println("(no orders to show)");
+                    return;
+                }
+
+                //Column widths: Order No. = 10, Item = 22, Qty = 4, prices = 12 (right-aligned)
+                String format = "%-10s %-22s %4s %12s %12s  %s%n";
+
+                System.out.printf(format, "Order No.", "Item", "Qty", "Unit Price", "Total", "Status");
+                System.out.println("---------------------------------------------------------------------------");
+
+                for (Order order : ordersToShow) {
+                    System.out.printf(format,
+                            formatOrderNumber(order.getOrderId()),
+                            shorten(order.getItemName(), 22),
+                            String.valueOf(order.getQuantity()),
+                            formatMoney(order.getUnitPrice()),
+                            formatMoney(order.getTotal()),
+                            order.getStatus());
+                }
+                System.out.println("---------------------------------------------------------------------------");
+            }
+
+            //14. Prints the receipt shown right after an order is placed (queuePosition 1 = next to be served).
+            private void UIprintReceipt(Order order, int queuePosition){
+                System.out.println();
+                System.out.println("============== RECEIPT ==============");
+                System.out.println("Order No.  : " + formatOrderNumber(order.getOrderId()));
+                System.out.println("Item       : " + order.getItemName());
+                System.out.println("Quantity   : " + order.getQuantity());
+                System.out.println("Unit Price : " + formatMoney(order.getUnitPrice()));
+                System.out.println("Total      : " + formatMoney(order.getTotal()));
+                System.out.println("-------------------------------------");
+                System.out.println("Your position in the queue: " + queuePosition);
+                System.out.println("=====================================");
+            }
+
+            //15. Prints a neutral message, prefixed with [INFO].
+            private void UIshowInfo(String message){
+                System.out.println("[INFO] " + message);
+            }
+
+            //16. Prints a good-news message, prefixed with [OK].
+            private void UIshowSuccess(String message){
+                System.out.println("[OK] " + message);
+            }
+
+            //17. Prints a caution message, prefixed with [WARNING]. For problems that do not stop the program (for example a skipped CSV row).
+            private void UIshowWarning(String message){
+                System.out.println("[WARNING] " + message);
+            }
+
+            //18. Prints an error message, prefixed with [ERROR]. It only prints; what happens next is decided by the caller.
+            private void UIshowError(String message){
+                System.out.println("[ERROR] " + message);
+            }
+
+            //19. Prints the closing message when the program ends.
+            private void UIshowGoodbye(){
+                System.out.println();
+                System.out.println("Thank you for using UBITE. Goodbye!");
+            }
+
+
+
+
+
+        //Helpers: For Workflow
+
+            //1. Asks for an item number until it is valid. Returns the chosen MenuItem, or null if the customer typed 0 to cancel.
+            //   The upper limit is Integer.MAX_VALUE on purpose: whether the item exists is checked here, not by UIreadInt.
+            //   The screen is NOT cleared here, so the menu stays visible after a wrong choice.
+            private MenuItem askForItem() {
+                while (true) {
+                    int itemId = UIreadInt("Enter item number (0 to cancel): ", 0, Integer.MAX_VALUE);
+
+                    if (itemId == 0) {
+                        return null;
+                    }
+
+                    MenuItem found = findMenuItemById(itemId);
+                    if (found == null) {
+                        UIshowError("Item number " + itemId + " does not exist.");
+                    } else if (!found.isAvailable()) {
+                        UIshowError(found.getName() + " is sold out.");
+                    } else {
+                        return found;
+                    }
+                }
+            }
+
+            //2. Looks for a menu item by id. Returns the matching MenuItem, or null if none matches.
+            private MenuItem findMenuItemById(int id) {
+                for (MenuItem item : menuItems) {
+                    if (item.getId() == id) {
+                        return item;
+                    }
+                }
+                return null;
+            }
+
+            //3. Returns the highest orderId in orders plus 1, or 1 if orders is empty.
+            private int computeNextOrderId() {
+                int highest = 0;
+                for (Order order : orders) {
+                    if (order.getOrderId() > highest) {
+                        highest = order.getOrderId();
+                    }
+                }
+                return highest + 1;
+            }
+
+            //4. Clears the queue, then enqueues every PENDING order in list order (this restores FIFO after a restart).
+            private void rebuildQueue() {
+                orderQueue.clear();
+
+                for (Order order : orders) {
+                    //enqueue() returns false when the queue is full
+                    if (order.isPending() && !orderQueue.enqueue(order)) {
+                        UIshowWarning("Order " + formatOrderNumber(order.getOrderId()) + " could not be added to the queue.");
+                    }
+                }
+            }
+
+            //5. Saves the whole history to orders.csv. If saving fails, it shows an error and the program keeps running with its in-memory data.
+            private void saveAll() {
+                if (!csvManager.saveOrders(orders)) {
+                    UIshowError("Your orders could not be saved. If orders.csv is open in another program (such as Excel), please close it. The program will keep running.");
+                }
+            }
+
+
+
+
+
+        //Program Flow
+
+            //1. STARTUP (contract Section 9.1)
+            private void init() {
+                //Step 0: create the objects that were declared at the top
+                scanner = new Scanner(System.in);
+                csvManager = new CsvManager();
+                orderQueue = new OrderQueue();
+
+                //Step 1
+                UIshowBanner();
+
+                //Step 2: without the data files the program cannot work, so it stops here.
+                if (!csvManager.ensureDataFiles()) {
+                    UIshowError("The data files could not be created or opened. UBITE cannot start.");
+                    for (String warning : csvManager.getWarnings()) {
+                        UIshowError(warning);
+                    }
+                    System.exit(1);
+                }
+
+                //Step 3
+                menuItems = csvManager.loadMenu();
+                orders = csvManager.loadOrders();
+
+                //Step 4: show every warning collected while loading. Pause only if there were any (before clearing the list).
+                List<String> warnings = csvManager.getWarnings();
+                for (String warning : warnings) {
+                    UIshowWarning(warning);
+                }
+                if (!warnings.isEmpty()) {
+                    UIpause();
+                }
+                csvManager.clearWarnings();
+
+                //Steps 5 and 6: this is what restores the pending orders after a restart
+                nextOrderId = computeNextOrderId();
+                rebuildQueue();
+
+                //Step 7: the program keeps running even with an empty menu.
+                if (menuItems.length == 0) {
+                    UIshowError("The menu is empty, so orders cannot be placed until menu.csv is fixed.");
+                    UIpause();
+                }
+            }
+
+            //2. MAIN LOOP: show the main menu, read a choice (1 to 6), run its handler, and repeat until the user picks 6 (Exit).
+            private void run() {
+                int choice = 0;
+
+                while (choice != 6) {
+                    UIClearCMDScreen();
+                    UIshowMainMenu();
+                    choice = UIreadInt("Choice: ", 1, 6);
+
+                    if (choice == 1)      {handleViewMenu();}
+                    else if (choice == 2) {handlePlaceOrder();}
+                    else if (choice == 3) {handleViewPending();}
+                    else if (choice == 4) {handleProcessNext();}
+                    else if (choice == 5) {handleViewHistory();}
+                    //choice 6 (Exit): nothing to do, the loop ends by itself
+                }
+            }
+
+            //3. SHUTDOWN: save, say goodbye, close the Scanner. Called once, last.
+            private void shutdown() {
+                saveAll();
+                UIshowGoodbye();
+                scanner.close();
+            }
+
+
+
+
+
+        //Menu Handlers (one method per main menu choice)
+
+            //1. VIEW MENU
+            private void handleViewMenu() {
+                UIClearCMDScreen();
+                UIprintMenu(menuItems);
+                UIpause();
+            }
+
+            //2. PLACE ORDER (contract Section 9.2)
+            private void handlePlaceOrder() {
+                //Step 0
+                UIClearCMDScreen();
+
+                //Step 1
+                if (menuItems.length == 0) {
+                    UIshowError("The menu is empty. Orders cannot be placed until menu.csv is fixed.");
+                    UIpause();
+                    return;
+                }
+
+                //Step 2
+                UIprintMenu(menuItems);
+
+                //Step 3: askForItem() keeps asking until the item is valid. null means the customer typed 0 to cancel.
+                MenuItem item = askForItem();
+                if (item == null) {
+                    return;
+                }
+
+                //Step 4
+                int quantity = UIreadInt("Quantity (1 to " + MAX_QUANTITY + "): ", 1, MAX_QUANTITY);
+
+                //Step 5: check BEFORE creating the order so no order number is wasted.
+                if (orderQueue.isFull()) {
+                    UIshowError("The queue is full. Please process some orders first.");
+                    UIpause();
+                    return;
+                }
+
+                //Step 6: create the order but do not store it yet. Order.getTotal() gives the total, so Main does no price math.
+                Order order = new Order(nextOrderId, item, quantity);
+                UIprintOrders("Order Summary", new Order[] { order });
+                if (!UIconfirm("Place this order?")) {
+                    UIshowInfo("Order cancelled.");
+                    UIpause();
+                    return;
+                }
+
+                //Step 7: now the order becomes real. isFull() was checked in step 5, so enqueue() cannot fail here.
+                orders.add(order);
+                orderQueue.enqueue(order);
+                nextOrderId++;
+
+                //Steps 8 and 9
+                saveAll();
+                UIprintReceipt(order, orderQueue.size());
+                UIpause();
+            }
+
+            //3. VIEW PENDING (oldest first)
+            private void handleViewPending() {
+                UIClearCMDScreen();
+                UIprintOrders("Pending Orders (oldest first)", orderQueue.toArray());
+                UIpause();
+            }
+
+            //4. PROCESS NEXT (contract Section 9.3)
+            private void handleProcessNext() {
+                //Step 0
+                UIClearCMDScreen();
+
+                //Step 1
+                if (orderQueue.isEmpty()) {
+                    UIshowInfo("No pending orders.");
+                    UIpause();
+                    return;
+                }
+
+                //Step 2: the queue and the orders list hold the SAME Order object, so marking it completed also updates the history.
+                Order order = orderQueue.dequeue();
+                order.markCompleted();
+
+                //Steps 3 and 4
+                saveAll();
+                UIshowSuccess("Order " + formatOrderNumber(order.getOrderId()) + " (" + order.getItemName() + ") has been processed.");
+                UIpause();
+            }
+
+            //5. VIEW HISTORY (the orders that are no longer pending)
+            private void handleViewHistory() {
+                UIClearCMDScreen();
+
+                //Going through the list in order keeps the completed orders in ascending order number.
+                ArrayList<Order> completed = new ArrayList<>();
+                for (Order order : orders) {
+                    if (!order.isPending()) {
+                        completed.add(order);
+                    }
+                }
+
+                //toArray(new Order[0]) turns the ArrayList into an Order[] for UIprintOrders.
+                UIprintOrders("Completed Orders", completed.toArray(new Order[0]));
+                UIpause();
+            }
+
+
+
+
+
     public static void main(String[] args) {
-        // TODO (Bolivar): follow the steps above.
-    }
+        Main app = new Main();
+        app.init();
 
-    /**
-     * STARTUP (Section 9.1), in this order:
-     *   1. ui.showBanner().
-     *   2. csv.ensureDataFiles(); if false, show an error with csv.getWarnings()
-     *      and stop the program.
-     *   3. menu = csv.loadMenu(); orders = csv.loadOrders().
-     *   4. Show every warning from csv.getWarnings() with ui.showWarning, then
-     *      csv.clearWarnings(). Call ui.pause() ONLY if there were warnings.
-     *   5. nextOrderId = computeNextOrderId().
-     *   6. rebuildQueue()  (this restores pending orders after a restart).
-     *   7. If the menu is empty, show an error that orders cannot be placed
-     *      until menu.csv is fixed. The program still runs.
-     */
-    private void init() {
-        // TODO (Bolivar): implement Section 9.1.
-    }
+        try {
+            app.run();
+        } catch (IllegalStateException e) {
+            //The input stream was closed: just continue to shutdown() so the data is saved.
+        }
 
-    /**
-     * MAIN LOOP. Repeat until the user picks Exit:
-     *   ui.showMainMenu(); choice = ui.readInt("Choice: ", 1, 6);
-     *   1 View Menu -> handleViewMenu()
-     *   2 Place Order -> handlePlaceOrder()
-     *   3 View Pending Orders -> handleViewPending()
-     *   4 Process Next Order -> handleProcessNext()
-     *   5 View Order History -> handleViewHistory()
-     *   6 Exit -> leave the loop
-     */
-    private void run() {
-        // TODO (Bolivar): implement the loop and the choice dispatch.
-    }
-
-    /**
-     * VIEW MENU: ui.printMenu(menu), then ui.pause().
-     */
-    private void handleViewMenu() {
-        // TODO (Bolivar): implement.
-    }
-
-    /**
-     * PLACE ORDER (Section 9.2):
-     *   1. If the menu is empty, show an error and return.
-     *   2. ui.printMenu(menu).
-     *   3. Ask the item number with ui.readInt (0 = cancel and return).
-     *      findMenuItemById(...) == null -> error, ask again.
-     *      item not available (sold out) -> error, ask again.
-     *   4. Ask the quantity: ui.readInt(..., 1, MAX_QUANTITY).
-     *   5. If queue.isFull(), show an error and return (check BEFORE creating
-     *      the order so order numbers are not wasted).
-     *   6. Show a summary (item, quantity, total) and ui.confirm(). If "no",
-     *      show "Order cancelled." and return.
-     *      (The total shown must come from an Order or MenuItem value, not
-     *      from price math written in ConsoleUI.)
-     *   7. order = new Order(nextOrderId, item, quantity); add it to orders;
-     *      queue.enqueue(order); nextOrderId++.
-     *   8. saveAll().
-     *   9. ui.printReceipt(order, queue.size()).
-     */
-    private void handlePlaceOrder() {
-        // TODO (Bolivar): implement Section 9.2.
-    }
-
-    /**
-     * VIEW PENDING: ui.printOrders("Pending Orders (oldest first)",
-     * queue.toArray()), then ui.pause().
-     */
-    private void handleViewPending() {
-        // TODO (Bolivar): implement.
-    }
-
-    /**
-     * PROCESS NEXT (Section 9.3):
-     *   1. If queue.isEmpty(): ui.showInfo("No pending orders.") and return.
-     *   2. order = queue.dequeue(); order.markCompleted().
-     *   3. saveAll().
-     *   4. ui.showSuccess(...) with the order number and item processed.
-     */
-    private void handleProcessNext() {
-        // TODO (Bolivar): implement Section 9.3.
-    }
-
-    /**
-     * VIEW HISTORY: collect the orders that are NOT pending (keep ascending
-     * order number) into an Order[] and call
-     * ui.printOrders("Completed Orders", thatArray), then ui.pause().
-     */
-    private void handleViewHistory() {
-        // TODO (Bolivar): implement.
-    }
-
-    /**
-     * SHUTDOWN: saveAll(), ui.showGoodbye(), ui.close(). Called once, last.
-     */
-    private void shutdown() {
-        // TODO (Bolivar): implement.
-    }
-
-    /**
-     * Looks for a menu item by id.
-     *
-     * @param id the item number the customer typed
-     * @return the matching MenuItem, or null if none matches
-     */
-    private MenuItem findMenuItemById(int id) {
-        // TODO (Bolivar): loop over menu and compare getId().
-        return null;
-    }
-
-    /**
-     * @return the highest orderId in orders plus 1, or 1 if orders is empty
-     */
-    private int computeNextOrderId() {
-        // TODO (Bolivar): implement.
-        return 1;
-    }
-
-    /**
-     * Clears the queue, then enqueues every PENDING order from orders, in list
-     * order (restores FIFO). If enqueue returns false, show a warning that the
-     * order could not be queued.
-     */
-    private void rebuildQueue() {
-        // TODO (Bolivar): implement.
-    }
-
-    /**
-     * Saves the whole history with csv.saveOrders(orders). If it returns
-     * false, show an error that the data could not be saved (suggest closing
-     * orders.csv if it is open in another program), return false, and KEEP
-     * RUNNING with the in-memory data.
-     *
-     * @return true if saved, false if saving failed
-     */
-    private boolean saveAll() {
-        // TODO (Bolivar): implement.
-        return true;
+        app.shutdown();
     }
 }

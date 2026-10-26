@@ -89,7 +89,26 @@ public class Order {
      * @throws IllegalArgumentException if a rule above is broken
      */
     public Order(int orderId, MenuItem item, int quantity) {
-        // TODO (Jontilano): validate, copy the item's values, compute total, set PENDING.
+        // Order Validation Input
+        if (orderId <= 0) {
+            throw new IllegalArgumentException("Order ID must be greater than 0.");
+        }
+        if (item == null) {
+            throw new IllegalArgumentException("Menu item cannot be empty.");
+        }
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be greater than 0.");
+        }
+
+        //
+        this.orderId = orderId;
+        this.itemId = item.getId();
+        this.itemName = item.getName();
+        this.unitPrice = item.getPrice();
+        this.quantity = quantity;
+
+        this.total = Math.round(this.unitPrice * this.quantity * 100.0) / 100.0;
+        this.status = Status.PENDING;
     }
 
     /**
@@ -115,71 +134,91 @@ public class Order {
      */
     public Order(int orderId, int itemId, String itemName,
                  double unitPrice, int quantity, Status status) {
-        // TODO (Jontilano): validate, assign the fields, compute total.
+        if (orderId <= 0) {
+            throw new IllegalArgumentException("Order ID must be greater than 0.");
+        }
+        if (itemId <= 0) {
+            throw new IllegalArgumentException("Item ID must be greater than 0.");
+        }
+        if (itemName == null || itemName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Item name cannot be blank.");
+        }
+        if (itemName.contains(",")) {
+            throw new IllegalArgumentException("Item name cannot contain a comma.");
+        }
+        if (unitPrice <= 0) {
+            throw new IllegalArgumentException("Unit price must be greater than 0.");
+        }
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be greater than 0.");
+        }
+        if (status == null) {
+            throw new IllegalArgumentException("Status cannot be null.");
+        }
+
+        this.orderId = orderId;
+        this.itemId = itemId;
+        this.itemName = itemName;
+        this.unitPrice = unitPrice;
+        this.quantity = quantity;
+        this.total = Math.round(unitPrice * quantity * 100.0) / 100.0;
+        this.status = status;
     }
 
     /**
      * @return the unique order number
      */
     public int getOrderId() {
-        // TODO (Jontilano): return the orderId field.
-        return 0;
+        return orderId;
     }
 
     /**
      * @return the id of the menu item that was ordered
      */
     public int getItemId() {
-        // TODO (Jontilano): return the itemId field.
-        return 0;
+        return itemId;
     }
 
     /**
      * @return the item name copied at the time of ordering
      */
     public String getItemName() {
-        // TODO (Jontilano): return the itemName field.
-        return null;
+        return itemName;
     }
 
     /**
      * @return the price per unit copied at the time of ordering
      */
     public double getUnitPrice() {
-        // TODO (Jontilano): return the unitPrice field.
-        return 0.0;
+        return unitPrice;
     }
 
     /**
      * @return the quantity ordered (greater than 0)
      */
     public int getQuantity() {
-        // TODO (Jontilano): return the quantity field.
-        return 0;
+        return quantity;
     }
 
     /**
      * @return unitPrice x quantity, rounded to 2 decimals (computed once, in the constructor)
      */
     public double getTotal() {
-        // TODO (Jontilano): return the total field.
-        return 0.0;
+        return total;
     }
 
     /**
      * @return the current status (PENDING or COMPLETED)
      */
     public Status getStatus() {
-        // TODO (Jontilano): return the status field.
-        return null;
+        return status;
     }
 
     /**
      * @return true when the status is PENDING, false when COMPLETED
      */
     public boolean isPending() {
-        // TODO (Jontilano): compare status with Status.PENDING.
-        return false;
+        return status == Status.PENDING;
     }
 
     /**
@@ -189,8 +228,11 @@ public class Order {
      * @throws IllegalStateException if the order is already COMPLETED
      */
     public void markCompleted() {
-        // TODO (Jontilano): if already COMPLETED throw IllegalStateException,
-        //                   otherwise set status = Status.COMPLETED.
+        if (status == Status.COMPLETED) {
+            throw new IllegalStateException("Order is already completed.");
+        }
+
+        status = Status.COMPLETED;
     }
 
     /**
@@ -200,8 +242,12 @@ public class Order {
      *
      * @return a one-line description of this order
      */
+    @Override
     public String toString() {
-        // TODO (Jontilano): build and return the debug string.
-        return "";
+        return String.format(
+                java.util.Locale.US,
+                "Order{id=%d, item=%s x%d, total=%.2f, status=%s}",
+                orderId, itemName, quantity, total, status
+        );
     }
 }
